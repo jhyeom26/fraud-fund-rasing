@@ -1,3 +1,9 @@
 language: rust
+env:
+  - PATH="$PATH:$HOME/protoc/bin"
+install:
+  - ./scripts/install_protoc.sh
+  - rustup install $(cat tests/rust-toolchain)
+  - rustup target add --toolchain=$(cat tests/rust-toolchain) wasm32-unknown-unknown
 script:
   - cd tests && cargo test
