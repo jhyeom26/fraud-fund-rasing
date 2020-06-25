@@ -1,35 +1,56 @@
 #[cfg(test)]
 mod tests {
-    use casperlabs_engine_test_support::{Code, Error, SessionBuilder, TestContextBuilder, Value};
-    use casperlabs_types::{account::PublicKey, U512};
-
-    const MY_ACCOUNT: PublicKey = PublicKey::ed25519_from([7u8; 32]);
-    // define KEY constant to match that in the contract
-    const KEY: &str = "special_value";
-    const VALUE: &str = "hello world";
-
+    use casperlabs_engine_test_support::{
+        internal::{ExecuteRequestBuilder, InMemoryWasmTestBuilder, DEFAULT_RUN_GENESIS_REQUEST},
+        DEFAULT_ACCOUNT_ADDR,
+    };
+    use casperlabs_types::U512;
     #[test]
-    fn should_store_hello_world() {
-        let mut context = TestContextBuilder::new()
-            .with_account(MY_ACCOUNT, U512::from(128_000_000))
-            .build();
+    fn draining_user_purse() {
+        let install_contract_request =
+            ExecuteRequestBuilder::standard(DEFAULT_ACCOUNT_ADDR, "contract.wasm", ()).build();
+        let mut builder = InMemoryWasmTestBuilder::default();
+        builder
+            .run_genesis(&*DEFAULT_RUN_GENESIS_REQUEST)
+            .exec(install_contract_request)
+            .expect_success()
+            .commit();
 
-        // The test framework checks for compiled Wasm files in '<current working dir>/wasm'.  Paths
-        // relative to the current working dir (e.g. 'wasm/contract.wasm') can also be used, as can
-        // absolute paths.
-        let session_code = Code::from("contract.wasm");
-        let session_args = (VALUE,);
-        let session = SessionBuilder::new(session_code, session_args)
-            .with_address(MY_ACCOUNT)
-            .with_authorization_keys(&[MY_ACCOUNT])
-            .build();
+        let account = builder
+            .get_account(DEFAULT_ACCOUNT_ADDR)
+            .expect("should get account");
 
-        let result_of_query: Result<Value, Error> = context.run(session).query(MY_ACCOUNT, &[KEY]);
+        let account_purse = account.main_purse();
+        let account_balance = builder.get_purse_balance(account_purse);
+        println!("before balance:{}", account_balance);
 
-        let returned_value = result_of_query.expect("should be a value");
+        let fraud_contract_hash = builder
+            .get_account(DEFAULT_ACCOUNT_ADDR)
+            .expect("should get account")
+            .named_keys()
+            .get("fraud_fund_raising_proxy")
+            .expect("should get fraud_fund_rasing_proxy key")
+            .into_hash()
+            .expect("should be hash");
 
-        let expected_value = Value::from_t(VALUE.to_string()).expect("should construct Value");
-        assert_eq!(expected_value, returned_value);
+        let amount = U512::from(10);
+        let transfer_exec_request = ExecuteRequestBuilder::contract_call_by_hash(
+            DEFAULT_ACCOUNT_ADDR,
+            fraud_contract_hash,
+            (amount,),
+        )
+        .build();
+        builder
+            .exec(transfer_exec_request)
+            .expect_success()
+            .commit();
+        let account = builder
+            .get_account(DEFAULT_ACCOUNT_ADDR)
+            .expect("should get account");
+
+        let account_purse = account.main_purse();
+        let account_balance = builder.get_purse_balance(account_purse);
+        println!("after  balance:{}", account_balance);
     }
 }
 
